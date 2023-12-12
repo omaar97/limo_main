@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'detect_pothole = limo_main.detect_pothole:main'
         ],
     },
 )

@@ -6,6 +6,12 @@
   <description>TODO: Package description</description>
   <maintainer email="omaar97@gmail.com">omaar97</maintainer>
   <license>Apache License 2.0</license>
+    
+  <depend>rclpy</depend>
+  <depend>cv_bridge</depend>
+  <depend>numpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv2</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
