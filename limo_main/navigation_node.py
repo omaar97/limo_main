@@ -76,8 +76,6 @@ def generate_waypoints():
         else:
             directions.append(np.pi)
 
-
-
 def main():
     rclpy.init()
 
