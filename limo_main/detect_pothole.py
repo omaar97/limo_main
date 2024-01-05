@@ -52,7 +52,7 @@ class PotholeDetector(Node):
 
     def analyze_rgb(self, ros_rgb_img):
         robot_sensor_img = self.bridge.imgmsg_to_cv2(ros_rgb_img, "bgr8")
-        self.detect_hole(robot_sensor_img, 1)
+        self.detect_hole(robot_sensor_img, 0)
 
     def detect_hole(self, img, map_type):
 
@@ -86,15 +86,27 @@ class PotholeDetector(Node):
 
             hsv_image = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv_image, (0, 0, 0), (180, 25, 255))
-            pothole_img = cv2.bitwise_and(img, img, mask=mask)
-            gray_img = cv2.cvtColor(pothole_img, cv2.COLOR_BGR2GRAY)
+            no_colors = cv2.bitwise_and(img, img, mask=mask)
+            gray_img = cv2.cvtColor(no_colors, cv2.COLOR_BGR2GRAY)
             enhanced_img = cv2.convertScaleAbs(img, alpha=4)
             #enhanced_img_2 = cv2.convertScaleAbs(img, beta=150)
             #Gaussian = cv2.GaussianBlur(gray_img, (7, 7), 0) 
-            #canny = cv2.Canny(img, 100, 150)
-
-            canny = cv2.Canny(gray_img, 85, 255) 
-
+            canny = cv2.Canny(img, 100, 150)
+            
+            kernel = np.ones((7, 7), np.uint8)
+            canny = cv2.Canny(gray_img, 0, 200)
+            dilated_1 = cv2.dilate(canny, kernel)
+            canny_2 = cv2.Canny(gray_img, 0, 15)
+            result = cv2.subtract(canny_2, dilated_1)
+            result[result < 0] = 0
+            #current_depth = deepcopy(self.depth_img)
+            #far_pixels = np.where(current_depth > 0.5)
+            #close_pixels = np.where(current_depth < 0.25)
+            #result[far_pixels] = 0
+            #result[close_pixels] = 0
+            pothole_img = cv2.dilate(result, kernel)
+            
+            
             def callback(x):
                 print(x)
 
@@ -116,7 +128,7 @@ class PotholeDetector(Node):
 
             cv2.destroyAllWindows()
             
-            kernel = np.ones((7, 7), np.uint8)
+            
             #img_erosion = cv2.erode(canny, kernel) 
             img_dilation = cv2.dilate(canny, kernel)
             gray_img_2 = cv2.cvtColor(enhanced_img, cv2.COLOR_BGR2GRAY)
@@ -126,29 +138,20 @@ class PotholeDetector(Node):
             #for x1,y1,x2,y2 in lines[0]:
              #   cv2.line(img,(x1,y1),(x2,y2),(0,255,0),2)
             #img_erosion = cv2.erode(img_dilation, kernel) 
-            params = cv2.SimpleBlobDetector.Params()
-            params.filterByInertia = False
-            params.filterByConvexity = False
-            params.filterByArea = True
-            params.minArea = 100
-            params.filterByColor = True
-            params.blobColor = 255
-
-            detector = cv2.SimpleBlobDetector.create(params)
-            keypoints = detector.detect(for_blob)
-            im_with_keypoints = cv2.drawKeypoints(canny, keypoints, np.array([]), (0,0,255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+            
             
             #_, to_get_contours = cv2.threshold(gray_img,5,255,cv2.THRESH_BINARY)
             
             #contours, hierarchy = cv2.findContours(to_get_contours,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
             
             #cv2.drawContours(img, contours, -1, (0,255,0), 3)
-            cv2.imshow('original image', img)
-            cv2.imshow('gray_img', gray_img)
-            cv2.imshow('enhanced_img', canny)
+            
+            #cv2.imshow('original image', dilated_1)
+            #cv2.imshow('gray_img', canny_2)
+            #cv2.imshow('enhanced_img', pothole_img)
             
         #pothole_location = []
-        '''
+        
         pothole = Marker()
 
         c = contours[0]
@@ -181,10 +184,10 @@ class PotholeDetector(Node):
         pothole.color.b = 0.0
         pothole.color.a = 1.0
 
-        self.pothole_location.publish(pothole)
-        '''
+        #self.pothole_location.publish(pothole)
+        
                 
-        #self.pothole_location.publish(self.all_potholes)
+        self.pothole_location.publish(self.all_potholes)
         #print('Current number of potholes:')
         #print(self.n_id)
         cv2.waitKey(1) 
@@ -244,12 +247,12 @@ class PotholeDetector(Node):
 
     def is_pothole_new(self, pothole):
 
-        depth_to_odom = self.tf_buffer.lookup_transform('odom', 'depth_link', rclpy.time.Time())
-        pose_to_check = do_transform_pose(pothole, depth_to_odom)
+        depth_to_map = self.tf_buffer.lookup_transform('map', 'depth_link', rclpy.time.Time())
+        pose_to_check = do_transform_pose(pothole, depth_to_map)
 
         if len(self.all_potholes.markers) == 0:
             new_pothole = Marker()
-            new_pothole.header.frame_id = "odom"
+            new_pothole.header.frame_id = "map"
             new_pothole.id = self.n_id
             new_pothole.type = Marker.SPHERE
             new_pothole.action = 0
@@ -289,7 +292,7 @@ class PotholeDetector(Node):
                 return
             
         new_pothole = Marker()
-        new_pothole.header.frame_id = "odom"
+        new_pothole.header.frame_id = "map"
         new_pothole.id = self.n_id
         new_pothole.type = Marker.SPHERE
         new_pothole.action = 0
