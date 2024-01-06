@@ -1,3 +1,12 @@
+# This code has three different parts:
+# The first part is the TFListener node where it waits 
+# The second part is the navigation node, which is activated once a message about the robot location is received
+# The node generates waypoints for the robot to navigate through potholes for both types of maps.
+# The points ideally cover the whole map. Some issues could arise if the robot deviates from the point it is 
+# supposed to reach.
+# The last part is to generate a report about the detected potholes once the map is covered
+# The report also generates an image of the pothole locations
+
 import numpy as np
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
@@ -7,7 +16,9 @@ from tf_transformations import quaternion_from_euler
 from copy import deepcopy
 from rclpy.node import Node
 import tf2_ros
+from visualization_msgs.msg import MarkerArray
 
+# A typical TFListener node:
 class TFListener(Node):
     def __init__(self):
         super().__init__('tf_listener')
@@ -22,8 +33,20 @@ class TFListener(Node):
             self.get_logger().warning(f"Failed to lookup transform: {str(e)}")
             return None
 
+# A node to write a report about the potholesthat is only activated after the navigation is completed
+class report_generator(Node):
+    def __init__(self):
+        super().__init__('generate_report')
+        self.get_potholes = self.create_subscription(MarkerArray, '/limo/pothole_location', self.pothole_data, 10)
+
+    def pothole_data(self, data):
+        self.potholes = data
+        print("Number of pothole generated:")
+        print(len(data.markers) + 1)
+        print('Done!')
+
+# A typical function to convert normal location to a Pose message
 def pose_from_xytheta(x, y, theta):
-    # negative theta: turn clockwise
     pose = Pose()
     pose.position.x = x
     pose.position.y = y
@@ -31,6 +54,7 @@ def pose_from_xytheta(x, y, theta):
     pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
     return pose
 
+# The following function locates the closest waypoint for the robot in the direction of the arrows on the map street
 def find_closest_point_cw(current_pose, points_to_cover):
     closest = np.argmin(np.linalg.norm(current_pose - points_to_cover, axis = 1))
 
@@ -50,14 +74,16 @@ def find_closest_point_cw(current_pose, points_to_cover):
         start_point = closest + 1
     return start_point
 
+# The following function generates the waypoints for the robot to follow.
+# The waypoints are generated based on the available map.
 def generate_waypoints(current_pose):
     
-    points_to_cover = np.array([[1.125, 0.0],
-              [1.125, -1.025],
-              [-0.325, -1.025],
-              [-1.125, -1.025],
-              [-1.125, 0.0],
-              [-0.325, 0.0]
+    points_to_cover = np.array([[1.15, 0.0],
+              [1.15, -1.05],
+              [-0.35, -1.05],
+              [-1.15, -1.05],
+              [-1.15, 0.0],
+              [-0.35, 0.0]
               ])
     
     start_point = find_closest_point_cw(current_pose, points_to_cover)
@@ -69,13 +95,13 @@ def generate_waypoints(current_pose):
 
     outer_loop = np.append(choose_points, [choose_points[0]], axis = 0)
 
-    inner_loop = np.array([[1.125, -1.025],
-                  [-0.325, -1.025],
-                  [-0.325, 0.0],
-                  [1.125, 0.0]
+    inner_loop = np.array([[1.15, -1.05],
+                  [-0.35, -1.05],
+                  [-0.35, 0.0],
+                  [1.15, 0.0]
               ])
     counter = 1
-    while sum(outer_loop[-1] == [1.125, 0.0]) != 2:
+    while sum(outer_loop[-1] == [1.15, 0.0]) != 2:
         outer_loop = np.append(outer_loop, [outer_loop[counter]], axis = 0)
         counter += 1
     
@@ -83,6 +109,11 @@ def generate_waypoints(current_pose):
 
     return final_points
 
+# A typical function for a waypoint follower. The major difference here is that it gets activated
+# once the tf transformation is received.
+# This allows the robot to navigate and cover the whole map regardless of its starting point.
+# Clearly it depends on the accuracy of the initial location of the robot.
+# This code should only be run after the robot localizes its starting point.
 def main():
 
     rclpy.init()
@@ -91,14 +122,24 @@ def main():
     while rclpy.ok():
         transform = tf_listener.get_tf_transform('map', 'base_link')
         if transform:
+            
             navigator = BasicNavigator()
 
             robot_x = transform.transform.translation.x
             robot_y = transform.transform.translation.y
 
-
-            points = generate_waypoints(np.array([robot_x, robot_y]))
-
+            initial_points = generate_waypoints(np.array([robot_x, robot_y]))
+            count = 1
+            for pt in initial_points:
+                if count == len(initial_points):
+                    break
+                elif count == 1:
+                    points = np.linspace(pt, initial_points[count], 4)
+                else:
+                    to_add = np.linspace(pt, initial_points[count], 4)
+                    points = np.append(points, to_add[1:], axis=0)
+                count+=1
+            
             print('Closest waypoint is')
             print(points[0])
 
@@ -109,14 +150,19 @@ def main():
             single_waypoint.pose.orientation.z = 1.0
             single_waypoint.pose.orientation.w = 0.0
             for point in points:
-                if point[0] == 1.1 and point[1] == 0.0:
+                direction = 0.0
+                if point[0] == 1.15 and point[1] == -1.05:
+                    direction = -np.pi
+                elif point[0] == -1.15 and point[1] == 0.0:
+                    continue
+                elif point[0] == 1.15:
                     direction = -np.pi/2
-                elif point[0] == -1.1 and point[1] == -1.0:
+                elif point[0] == -1.15:
                     direction = np.pi/2
-                elif point[1] == 0.0:
-                    direction = 0.0
-                else:
-                    direction = np.pi
+                elif point[1] == -1.05:
+                    direction = -np.pi
+                elif point[0] == -0.35 and point[1] != 0.0:
+                    direction = np.pi/2
 
                 single_waypoint.pose = pose_from_xytheta(point[0], point[1], direction)
                 all_waypoints.append(deepcopy(single_waypoint))
@@ -133,8 +179,6 @@ def main():
             print(robot_y)
             # Wait for navigation to fully activate, since autostarting nav2
             navigator.waitUntilNav2Active()
-
-            print()
 
             navigator.followWaypoints(all_waypoints)
 
@@ -166,6 +210,14 @@ def main():
 
     tf_listener.destroy_node()
     rclpy.shutdown()
+
+    # Now write the report:
+    rclpy.init()
+    generate_report = report_generator()
+    rclpy.spin_once(generate_report)
+    generate_report.destroy_node()
+    rclpy.shutdown()
+    
 
 if __name__ == '__main__':
     main()
