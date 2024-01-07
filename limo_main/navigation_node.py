@@ -7,6 +7,8 @@
 # The last part is to generate a report about the detected potholes once the map is covered
 # The report also generates an image of the pothole locations
 
+import cv2
+import pathlib
 import numpy as np
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
@@ -17,6 +19,7 @@ from copy import deepcopy
 from rclpy.node import Node
 import tf2_ros
 from visualization_msgs.msg import MarkerArray
+import reportlab
 
 # A typical TFListener node:
 class TFListener(Node):
@@ -37,13 +40,44 @@ class TFListener(Node):
 class report_generator(Node):
     def __init__(self):
         super().__init__('generate_report')
-        self.get_potholes = self.create_subscription(MarkerArray, '/limo/pothole_location', self.pothole_data, 10)
+        self.get_potholes = self.create_subscription(MarkerArray, '/limo/pothole_location', self.draw_pothole_map, 10)
 
-    def pothole_data(self, data):
-        self.potholes = data
+    def write_report(self, markers):
+
+        fileName = 'pothole_report.pdf'
+        documentTitle = 'PotholeReport'
+        title = 'Detailed analysis of detected potholes'
+        subTitle = 'The largest thing now!!'
+        text = []
+        image = 'image.jpg'
+        
+        for pothole in data.markers:
+            x = pothole.pose.position.x
+            y = pothole.pose.position.x
+            text.append()
+        
         print("Number of pothole generated:")
-        print(len(data.markers) + 1)
+        print(len(data.markers))
         print('Done!')
+
+    def draw_pothole_map(self, data):
+        map_deviation_x = 76 # deviation of robot initial position in pixels
+        map_deviation_y = 10
+        this_path = pathlib.Path('navigation_node.py')
+        parent = this_path.parent.absolute()
+        image_path = parent.joinpath('maps/potholes_20mm.pgm')
+        map = cv2.imread(str(image_path), -1)
+        pothole_map = deepcopy(map)
+        for pothole in data.markers:
+            x = pothole.pose.position.x
+            y = pothole.pose.position.x
+            abs_x = int(x/0.02) + map_deviation_x
+            abs_y = int(-y/0.02) + map_deviation_y
+            size = 1
+            pothole_map[abs_y - size:abs_y + size, abs_x - size:abs_x + size] = 127
+        cv2.imwrite(pothole_map)
+
+        self.write_report(data)
 
 # A typical function to convert normal location to a Pose message
 def pose_from_xytheta(x, y, theta):
