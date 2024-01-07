@@ -3,9 +3,13 @@
 # The second part is the navigation node, which is activated once a message about the robot location is received
 # The node generates waypoints for the robot to navigate through potholes for both types of maps.
 # The points ideally cover the whole map. Some issues could arise if the robot deviates from the point it is 
-# supposed to reach.
+# supposed to reach. 
 # The last part is to generate a report about the detected potholes once the map is covered
 # The report also generates an image of the pothole locations
+
+########################################################################################################################
+## IMPORTANT: For the navigation to work properly, the nav2 controller parameter should be a rotation shim controller ##
+########################################################################################################################
 
 import cv2
 import pathlib
@@ -47,36 +51,33 @@ class report_generator(Node):
         fileName = 'pothole_report.pdf'
         documentTitle = 'PotholeReport'
         title = 'Detailed analysis of detected potholes'
-        subTitle = 'The largest thing now!!'
+        subTitle = 'The total number of potholes is ' + str(len(markers.markers))
+        subTitle2 = 'Pothole locations (in mm) relative to the "map" coordinate frame'
         text = []
-        image = 'image.jpg'
         
-        for pothole in data.markers:
-            x = pothole.pose.position.x
-            y = pothole.pose.position.x
-            text.append()
-        
-        print("Number of pothole generated:")
-        print(len(data.markers))
-        print('Done!')
+        for pothole in markers.markers:
+            pothole_num = pothole.id + 1
+            x = pothole.pose.position.x*100
+            y = pothole.pose.position.x*100
+            text_to_add = 'Location of pothole #' + str(pothole_num) + ' is approximately: x: ' + str(int(x)) + ', y: ' + str(int(y))
+            text.append(text_to_add)
 
     def draw_pothole_map(self, data):
         map_deviation_x = 76 # deviation of robot initial position in pixels
         map_deviation_y = 10
         this_path = pathlib.Path('navigation_node.py')
-        parent = this_path.parent.absolute()
-        image_path = parent.joinpath('maps/potholes_20mm.pgm')
+        self.parent = this_path.parent.absolute()
+        image_path = self.parent.joinpath('maps/potholes_20mm.pgm')
         map = cv2.imread(str(image_path), -1)
-        pothole_map = deepcopy(map)
+        self.pothole_map = deepcopy(map)
         for pothole in data.markers:
             x = pothole.pose.position.x
             y = pothole.pose.position.x
             abs_x = int(x/0.02) + map_deviation_x
             abs_y = int(-y/0.02) + map_deviation_y
             size = 1
-            pothole_map[abs_y - size:abs_y + size, abs_x - size:abs_x + size] = 127
-        cv2.imwrite(pothole_map)
-
+            self.pothole_map[abs_y - size:abs_y + size, abs_x - size:abs_x + size] = 127
+        cv2.imwrite('potholes.png', self.pothole_map)
         self.write_report(data)
 
 # A typical function to convert normal location to a Pose message
@@ -92,6 +93,8 @@ def pose_from_xytheta(x, y, theta):
 # The waypoints are generated based on the available map.
 def generate_waypoints(current_pose):
     
+    # The following points are the corners of the map, plus the road in the middle.
+    # These points were determined experimentally.
     points_to_cover = np.array([[1.15, 0.0],
               [1.15, -1.05],
               [-0.35, -1.05],
@@ -100,22 +103,27 @@ def generate_waypoints(current_pose):
               [-0.35, 0.0]
               ])
     
-    start_point = find_closest_point_cw(current_pose, points_to_cover)
+    start_point = find_closest_point_cw(current_pose, points_to_cover) # A function to find the closest point to the robot
 
+    # Here the waypoints are determined based on the starting point such that the full map is covered
     if start_point < len(points_to_cover):
         choose_points = np.roll(points_to_cover, -start_point, axis=0)
     else:
         choose_points = points_to_cover
 
-    outer_loop = np.append(choose_points, [choose_points[0]], axis = 0)
+    outer_loop = np.append(choose_points, [choose_points[0]], axis = 0) # These are the waypoints for the outer road
 
+    # These are the coordinates the robot has to follow to cover the inner road (the road in the middle)
     inner_loop = np.array([[1.15, -1.05],
                   [-0.35, -1.05],
                   [-0.35, 0.0],
                   [1.15, 0.0]
               ])
+    
+    # The following loop ensures the robot always ends up at the top right corner before adding the inner loop coordinates.
+    # This ensures the robot stays as much as possible on the asphalt path.
     counter = 1
-    while sum(outer_loop[-1] == [1.15, 0.0]) != 2:
+    while sum(outer_loop[-1] == [1.15, 0.0]) != 2: 
         outer_loop = np.append(outer_loop, [outer_loop[counter]], axis = 0)
         counter += 1
     
@@ -127,6 +135,7 @@ def generate_waypoints(current_pose):
 def find_closest_point_cw(current_pose, points_to_cover):
     closest = np.argmin(np.linalg.norm(current_pose - points_to_cover, axis = 1)) # Find the closest point to the robot
 
+    # Pick the closest point and the one next to it in the direction of travel.
     if closest == 2:
         points_to_compare = np.array([points_to_cover[closest], points_to_cover[-1]])
     elif closest + 1 == len(points_to_cover):
@@ -134,6 +143,9 @@ def find_closest_point_cw(current_pose, points_to_cover):
     else:
         points_to_compare = np.array([points_to_cover[closest], points_to_cover[closest+1]])
 
+    # Now compare between the current location of the robot and these two points to determine which one the robot should follow.
+    # Example: if the closest point is a point that is in the opposite direction of travel, the comparison here will pick the next 
+    # point, which is further away from the robot, as the first point in the navigation waypoints.
     determine_from = current_pose - points_to_compare
     comparison_axis = np.argmin(np.abs(points_to_compare[0] - points_to_compare[1]))
 
@@ -159,11 +171,12 @@ def main():
             
             navigator = BasicNavigator()
 
-            robot_x = transform.transform.translation.x
+            robot_x = transform.transform.translation.x # Get the location of the robot
             robot_y = transform.transform.translation.y
 
-            initial_points = generate_waypoints(np.array([robot_x, robot_y]))
+            initial_points = generate_waypoints(np.array([robot_x, robot_y])) # Generate the major waypoints
             count = 1
+            # Here add minor interpolated points. This helps the robot to follow the path in a better way.
             for pt in initial_points:
                 if count == len(initial_points):
                     break
@@ -173,17 +186,15 @@ def main():
                     to_add = np.linspace(pt, initial_points[count], 4)
                     points = np.append(points, to_add[1:], axis=0)
                 count+=1
-            
-            print('Closest waypoint is')
-            print(points[0])
 
+            # The following lines generate the way points with respect to the map coordinate frame
             all_waypoints = []
             single_waypoint = PoseStamped()
             single_waypoint.header.frame_id = 'map'
             single_waypoint.header.stamp = navigator.get_clock().now().to_msg()
             single_waypoint.pose.orientation.z = 1.0
             single_waypoint.pose.orientation.w = 0.0
-            for point in points:
+            for point in points: # The direction of the robot is determined based on the location of the point
                 direction = 0.0
                 if point[0] == 1.15 and point[1] == -1.05:
                     direction = -np.pi
@@ -198,15 +209,15 @@ def main():
                 elif point[0] == -0.35 and point[1] != 0.0:
                     direction = np.pi/2
 
-                single_waypoint.pose = pose_from_xytheta(point[0], point[1], direction)
-                all_waypoints.append(deepcopy(single_waypoint))
+                single_waypoint.pose = pose_from_xytheta(point[0], point[1], direction) # Get the pose of the waypoint
+                all_waypoints.append(deepcopy(single_waypoint)) # Append to all waypoints
 
             initial_pose = PoseStamped()
             initial_pose.header.frame_id = 'map'
             initial_pose.header.stamp = navigator.get_clock().now().to_msg()
             initial_pose.pose = pose_from_xytheta(robot_x, robot_y, 0.0)
             initial_pose.pose.orientation = transform.transform.rotation
-            navigator.setInitialPose(initial_pose)
+            navigator.setInitialPose(initial_pose) # First possition of the robot
 
             print('The robot location is')
             print(robot_x)
@@ -217,15 +228,14 @@ def main():
             navigator.followWaypoints(all_waypoints)
 
             i = 0
-            while not navigator.isTaskComplete():
-                # Do something with the feedback
+            while not navigator.isTaskComplete(): # The current waypoint is printed as a feedback.
                 i = i + 1
                 feedback = navigator.getFeedback()
                 if feedback and i % 5 == 0:
                     print('Executing current waypoint: ' +
                     str(feedback.current_waypoint + 1) + '/' + str(len(all_waypoints)))
 
-            # Do something depending on the return code
+            # Status of the goal point:
             result = navigator.getResult()
             if result == TaskResult.SUCCEEDED:
                 print('Goal succeeded!')
