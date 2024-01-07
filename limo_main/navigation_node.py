@@ -54,26 +54,6 @@ def pose_from_xytheta(x, y, theta):
     pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
     return pose
 
-# The following function locates the closest waypoint for the robot in the direction of the arrows on the map street
-def find_closest_point_cw(current_pose, points_to_cover):
-    closest = np.argmin(np.linalg.norm(current_pose - points_to_cover, axis = 1))
-
-    if closest == 2:
-        points_to_compare = np.array([points_to_cover[closest], points_to_cover[-1]])
-    elif closest + 1 == len(points_to_cover):
-        points_to_compare = np.array([points_to_cover[closest], points_to_cover[0]])
-    else:
-        points_to_compare = np.array([points_to_cover[closest], points_to_cover[closest+1]])
-
-    determine_from = current_pose - points_to_compare
-    comparison_axis = np.argmin(np.abs(points_to_compare[0] - points_to_compare[1]))
-
-    if np.abs(determine_from[0][comparison_axis]) > 0.1:
-        start_point = closest
-    else:
-        start_point = closest + 1
-    return start_point
-
 # The following function generates the waypoints for the robot to follow.
 # The waypoints are generated based on the available map.
 def generate_waypoints(current_pose):
@@ -108,6 +88,26 @@ def generate_waypoints(current_pose):
     final_points = np.append(outer_loop, inner_loop, axis=0)
 
     return final_points
+
+# The following function locates the closest waypoint for the robot in the direction of the arrows on the map street
+def find_closest_point_cw(current_pose, points_to_cover):
+    closest = np.argmin(np.linalg.norm(current_pose - points_to_cover, axis = 1)) # Find the closest point to the robot
+
+    if closest == 2:
+        points_to_compare = np.array([points_to_cover[closest], points_to_cover[-1]])
+    elif closest + 1 == len(points_to_cover):
+        points_to_compare = np.array([points_to_cover[closest], points_to_cover[0]])
+    else:
+        points_to_compare = np.array([points_to_cover[closest], points_to_cover[closest+1]])
+
+    determine_from = current_pose - points_to_compare
+    comparison_axis = np.argmin(np.abs(points_to_compare[0] - points_to_compare[1]))
+
+    if np.abs(determine_from[0][comparison_axis]) > 0.1:
+        start_point = closest
+    else:
+        start_point = closest + 1
+    return start_point
 
 # A typical function for a waypoint follower. The major difference here is that it gets activated
 # once the tf transformation is received.
