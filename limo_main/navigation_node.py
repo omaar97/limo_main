@@ -12,6 +12,7 @@
 ########################################################################################################################
 
 import cv2
+import os
 import pathlib
 import numpy as np
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
@@ -23,7 +24,7 @@ from copy import deepcopy
 from rclpy.node import Node
 import tf2_ros
 from visualization_msgs.msg import MarkerArray
-import reportlab
+from reportlab.pdfgen import canvas
 
 # A typical TFListener node:
 class TFListener(Node):
@@ -44,41 +45,74 @@ class TFListener(Node):
 class report_generator(Node):
     def __init__(self):
         super().__init__('generate_report')
+        self.map_type = 0
         self.get_potholes = self.create_subscription(MarkerArray, '/limo/pothole_location', self.draw_pothole_map, 10)
 
-    def write_report(self, markers):
+    def draw_pothole_map(self, data): # This function generates the map of the detected potholes
+        # The detected potholes are drawn as sky blue squares
+        # The potholes are drawn over the provided world maps (stored in the "backgrounds" folder)
 
-        fileName = 'pothole_report.pdf'
+        map_deviation_x = 76 # deviation of robot initial position in pixels
+        map_deviation_y = 10
+
+        # Get the path (this only work properly when the terminal is in ros2_ws directory):
+        this_path = pathlib.Path('navigation_node.py')
+        self.parent = this_path.parent.absolute()
+        if self.map_type == 0:
+            image_path = self.parent.joinpath('src/limo_main/backgrounds/background_potholes_simple.png')
+        else:
+            image_path = self.parent.joinpath('src/limo_main/backgrounds/background_potholes.png')
+        
+        map = cv2.imread(str(image_path)) # Get the map
+        self.pothole_map = deepcopy(map)
+        
+        for pothole in data.markers: # Draw the markersas sky blue squares of size 22*22 pixels
+            x = pothole.pose.position.x
+            y = pothole.pose.position.y
+            abs_x = int(((x/0.02) + map_deviation_x)*11.6578947) # This ratio is based on the size of the pgm map vs gazebo map (background)
+            abs_y = int(((-y/0.02) + map_deviation_y)*11.6578947)
+            size = 11
+            self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 0] = 255
+            self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 1] = 225
+            self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 2] = 0
+        cv2.imwrite(str(self.parent.joinpath('src/limo_main/report/potholes.png')), self.pothole_map) # Save the potholes map image
+        self.write_report(data) # Write the report
+
+    def write_report(self, markers): # This function generates the report using reportlab library
+        # For more information about how it is used, please check here: https://www.geeksforgeeks.org/creating-pdf-documents-with-python/
+
+        pothole_resize = cv2.resize(self.pothole_map, None, fx= 0.3, fy= 0.3, interpolation= cv2.INTER_LINEAR)
+        cv2.imwrite('potholes_for_report.png', pothole_resize)
+        report_img = 'potholes_for_report.png'
+        fileName = self.parent.joinpath('src/limo_main/report/PotholeReport.pdf')
         documentTitle = 'PotholeReport'
         title = 'Detailed analysis of detected potholes'
-        subTitle = 'The total number of potholes is ' + str(len(markers.markers))
-        subTitle2 = 'Pothole locations (in mm) relative to the "map" coordinate frame'
+        headline_1 = '1- The total number of potholes is ' + str(len(markers.markers))
+        headline_2 = '2- Pothole locations (in mm) relative to the "map" coordinate frame:'
+        headline_3 = '3- The map of the actual vs detected potholes (sky blue squares):'
         text = []
-        
+        pdf = canvas.Canvas(str(fileName))
+        pdf.setTitle(documentTitle)
+        pdf.setFont('Helvetica', 20)
+        pdf.drawCentredString(300, 800, title)
+        pdf.setFont('Helvetica', 14)
+        pdf.drawString(30, 760, headline_1)
+        pdf.drawString(30, 730, headline_2)
+        text = pdf.beginText(30, 700)
+        text.setFont('Helvetica', 10)
         for pothole in markers.markers:
             pothole_num = pothole.id + 1
             x = pothole.pose.position.x*100
             y = pothole.pose.position.x*100
-            text_to_add = 'Location of pothole #' + str(pothole_num) + ' is approximately: x: ' + str(int(x)) + ', y: ' + str(int(y))
-            text.append(text_to_add)
-
-    def draw_pothole_map(self, data):
-        map_deviation_x = 76 # deviation of robot initial position in pixels
-        map_deviation_y = 10
-        this_path = pathlib.Path('navigation_node.py')
-        self.parent = this_path.parent.absolute()
-        image_path = self.parent.joinpath('maps/potholes_20mm.pgm')
-        map = cv2.imread(str(image_path), -1)
-        self.pothole_map = deepcopy(map)
-        for pothole in data.markers:
-            x = pothole.pose.position.x
-            y = pothole.pose.position.x
-            abs_x = int(x/0.02) + map_deviation_x
-            abs_y = int(-y/0.02) + map_deviation_y
-            size = 1
-            self.pothole_map[abs_y - size:abs_y + size, abs_x - size:abs_x + size] = 127
-        cv2.imwrite('potholes.png', self.pothole_map)
-        self.write_report(data)
+            text_to_add = '- Location of pothole #' + str(pothole_num) + ' is approximately: x: ' + str(int(x)) + ', y: ' + str(int(y))
+            text.textLines(str(text_to_add))
+        pdf.drawText(text)
+        pdf.showPage()
+        pdf.setFont('Helvetica', 14)
+        pdf.drawString(30, 800, headline_3)
+        pdf.drawImage(report_img, 30, 500)
+        pdf.save()
+        os.remove(str(report_img))
 
 # A typical function to convert normal location to a Pose message
 def pose_from_xytheta(x, y, theta):
@@ -161,6 +195,7 @@ def find_closest_point_cw(current_pose, points_to_cover):
 # Clearly it depends on the accuracy of the initial location of the robot.
 # This code should only be run after the robot localizes its starting point.
 def main():
+    '''
 
     rclpy.init()
     tf_listener = TFListener()
@@ -254,7 +289,7 @@ def main():
 
     tf_listener.destroy_node()
     rclpy.shutdown()
-
+    '''
     # Now write the report:
     rclpy.init()
     generate_report = report_generator()

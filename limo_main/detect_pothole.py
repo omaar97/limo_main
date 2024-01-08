@@ -2,6 +2,8 @@
 # The variable self.map_type in the class constructer determines which map to use
 # self.map_type = 1 for the realistic pothole map, and self.map_type = 0 for the simple pothole map
 
+# Re-build the package if the self.map_type is changed!
+
 import rclpy
 import cv2
 import numpy as np
@@ -21,7 +23,7 @@ class PotholeDetector(Node):
     def __init__(self):
         super().__init__('detect_pothole')
         # The relevant variables and publishers/subscribers are initialized here 
-        self.map_type = 1
+        self.map_type = 0
         self.depth_img = None
         self.camera_model = None
         self.all_potholes = MarkerArray() # To visualize the pothole locations as markers in rviz
