@@ -195,7 +195,6 @@ def find_closest_point_cw(current_pose, points_to_cover):
 # Clearly it depends on the accuracy of the initial location of the robot.
 # This code should only be run after the robot localizes its starting point.
 def main():
-    '''
 
     rclpy.init()
     tf_listener = TFListener()
@@ -289,7 +288,7 @@ def main():
 
     tf_listener.destroy_node()
     rclpy.shutdown()
-    '''
+    
     # Now write the report:
     rclpy.init()
     generate_report = report_generator()
