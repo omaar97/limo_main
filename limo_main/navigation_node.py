@@ -75,17 +75,19 @@ class report_generator(Node):
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 0] = 255
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 1] = 225
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 2] = 0
-        cv2.imwrite(str(self.parent.joinpath('src/limo_main/report/potholes.png')), self.pothole_map) # Save the potholes map image
+        cv2.imwrite(str(self.parent.joinpath('src/limo_main/report/simple_potholes_sample.png')), self.pothole_map) # Save the potholes map image
+        print('Writing the report...')
         self.write_report(data) # Write the report
 
     def write_report(self, markers): # This function generates the report using reportlab library
+        # It simple works by initiating the pdf as a "Canvas", and then appointing a location of the text before adding it to the pdf canvas.
         # For more information about how it is used, please check here: https://www.geeksforgeeks.org/creating-pdf-documents-with-python/
 
         pothole_resize = cv2.resize(self.pothole_map, None, fx= 0.3, fy= 0.3, interpolation= cv2.INTER_LINEAR)
         cv2.imwrite('potholes_for_report.png', pothole_resize)
         report_img = 'potholes_for_report.png'
-        fileName = self.parent.joinpath('src/limo_main/report/PotholeReport.pdf')
-        documentTitle = 'PotholeReport'
+        fileName = self.parent.joinpath('src/limo_main/report/simple_potholes_report_sample.pdf')
+        documentTitle = 'simple_potholes_report_sample'
         title = 'Detailed analysis of detected potholes'
         headline_1 = '1- The total number of potholes is ' + str(len(markers.markers))
         headline_2 = '2- Pothole locations (in mm) relative to the "map" coordinate frame:'
@@ -113,6 +115,7 @@ class report_generator(Node):
         pdf.drawImage(report_img, 30, 500)
         pdf.save()
         os.remove(str(report_img))
+        print('Done!')
 
 # A typical function to convert normal location to a Pose message
 def pose_from_xytheta(x, y, theta):
@@ -208,9 +211,11 @@ def main():
             robot_x = transform.transform.translation.x # Get the location of the robot
             robot_y = transform.transform.translation.y
 
-            initial_points = generate_waypoints(np.array([robot_x, robot_y])) # Generate the major waypoints
+            points = generate_waypoints(np.array([robot_x, robot_y])) # Generate the major waypoints
             count = 1
-            # Here add minor interpolated points. This helps the robot to follow the path in a better way.
+            # Here add minor interpolated points.
+            # This was done at an earlier stage of the code and seems to be redundant. Kept here as commented in case it is needed again.
+            '''
             for pt in initial_points:
                 if count == len(initial_points):
                     break
@@ -220,19 +225,19 @@ def main():
                     to_add = np.linspace(pt, initial_points[count], 4)
                     points = np.append(points, to_add[1:], axis=0)
                 count+=1
-
+            '''
             # The following lines generate the way points with respect to the map coordinate frame
             all_waypoints = []
             single_waypoint = PoseStamped()
             single_waypoint.header.frame_id = 'map'
             single_waypoint.header.stamp = navigator.get_clock().now().to_msg()
-            single_waypoint.pose.orientation.z = 1.0
-            single_waypoint.pose.orientation.w = 0.0
             for point in points: # The direction of the robot is determined based on the location of the point
                 direction = 0.0
                 if point[0] == 1.15 and point[1] == -1.05:
                     direction = -np.pi
                 elif point[0] == -1.15 and point[1] == 0.0:
+                    single_waypoint.pose = pose_from_xytheta(point[0], point[1], direction) # Get the pose of the waypoint
+                    all_waypoints.append(deepcopy(single_waypoint)) # Append to all waypoints
                     continue
                 elif point[0] == 1.15:
                     direction = -np.pi/2
@@ -268,6 +273,7 @@ def main():
                 if feedback and i % 5 == 0:
                     print('Executing current waypoint: ' +
                     str(feedback.current_waypoint + 1) + '/' + str(len(all_waypoints)))
+                    print(points[feedback.current_waypoint])
 
             # Status of the goal point:
             result = navigator.getResult()

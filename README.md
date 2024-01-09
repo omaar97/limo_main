@@ -31,7 +31,7 @@ This work presents a pothole detector for two simulated scenarios in Gazebo and 
 
 > ros2 launch limo_navigation limo_navigation.launch.py use_sim_time:=true map:=src/limo_main/maps/potholes_20mm.yaml params_file:=src/limo_main/params/nav2_params.yaml
 
-6- Check the variable self.map_type in detect_pothole node line 24. Its value should be 0 for the simple world and 1 for the realistic world. Don't forget to re-build the package if a different world is used!
+6- Check the variable self.map_type in detect_pothole node line 24 and navigation_node.py node line 48. Its value should be 0 for the simple world and 1 for the realistic world. Don't forget to re-build the package if a different world is used!
 
 7- Apply step 4 again and run the pothole detector node:
 
