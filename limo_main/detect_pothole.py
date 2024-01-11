@@ -24,6 +24,7 @@ class PotholeDetector(Node):
         super().__init__('detect_pothole')
         # The relevant variables and publishers/subscribers are initialized here 
         self.map_type = 0
+        
         self.depth_img = None
         self.camera_model = None
         self.all_potholes = MarkerArray() # To visualize the pothole locations as markers in rviz

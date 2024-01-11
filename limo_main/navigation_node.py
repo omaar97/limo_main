@@ -1,5 +1,5 @@
 # This code has three different parts:
-# The first part is the TFListener node where it waits 
+# The first part is the TFListener node where it waits for the base link to map transformation to get the initial position of the robot
 # The second part is the navigation node, which is activated once a message about the robot location is received
 # The node generates waypoints for the robot to navigate through potholes for both types of maps.
 # The points ideally cover the whole map. Some issues could arise if the robot deviates from the point it is 
@@ -42,22 +42,32 @@ class TFListener(Node):
             return None
 
 # A node to write a report about the potholesthat is only activated after the navigation is completed
+# IMPORTANT: Paths in this node are created assuming the user is running the node from the workspace
+# directory as per the instructions.
 class report_generator(Node):
     def __init__(self):
         super().__init__('generate_report')
+
         self.map_type = 0
+
+        this_path = pathlib.Path('navigation_node.py')
+        self.parent = this_path.parent.absolute()
+        reports_path = self.parent.joinpath('src/limo_main/reports/')
+        number_of_files = len(os.listdir(str(reports_path)))
+        self.report_title = 'Report' + str(int(number_of_files/2))
+        self.image_title = 'DetectedPotholes' + str(int(number_of_files/2))
+        
         self.get_potholes = self.create_subscription(MarkerArray, '/limo/pothole_location', self.draw_pothole_map, 10)
+        
 
     def draw_pothole_map(self, data): # This function generates the map of the detected potholes
         # The detected potholes are drawn as sky blue squares
         # The potholes are drawn over the provided world maps (stored in the "backgrounds" folder)
 
-        map_deviation_x = 76 # deviation of robot initial position in pixels
+        map_deviation_x = 76 # deviation of robot initial position from the top left corner of the map image in pixels 
         map_deviation_y = 10
 
-        # Get the path (this only work properly when the terminal is in ros2_ws directory):
-        this_path = pathlib.Path('navigation_node.py')
-        self.parent = this_path.parent.absolute()
+        # Get the path (this only work properly when the terminal is in ros2_ws/workspace directory):
         if self.map_type == 0:
             image_path = self.parent.joinpath('src/limo_main/backgrounds/background_potholes_simple.png')
         else:
@@ -75,7 +85,9 @@ class report_generator(Node):
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 0] = 255
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 1] = 225
             self.pothole_map[abs_y-size:abs_y+size, abs_x-size:abs_x+size, 2] = 0
-        cv2.imwrite(str(self.parent.joinpath('src/limo_main/report/simple_potholes_sample.png')), self.pothole_map) # Save the potholes map image
+        
+        pothole_map_path = 'src/limo_main/reports/' + str(self.image_title) + '.png'
+        cv2.imwrite(str(self.parent.joinpath(str(pothole_map_path))), self.pothole_map) # Save the potholes map image
         print('Writing the report...')
         self.write_report(data) # Write the report
 
@@ -86,26 +98,26 @@ class report_generator(Node):
         pothole_resize = cv2.resize(self.pothole_map, None, fx= 0.3, fy= 0.3, interpolation= cv2.INTER_LINEAR)
         cv2.imwrite('potholes_for_report.png', pothole_resize)
         report_img = 'potholes_for_report.png'
-        fileName = self.parent.joinpath('src/limo_main/report/simple_potholes_report_sample.pdf')
-        documentTitle = 'simple_potholes_report_sample'
+        report_path = 'src/limo_main/reports/' + str(self.report_title) + '.pdf'
+        fileName = self.parent.joinpath(str(report_path))
         title = 'Detailed analysis of detected potholes'
-        headline_1 = '1- The total number of potholes is ' + str(len(markers.markers))
+        headline_1 = '1- The total number of detected potholes is ' + str(len(markers.markers))
         headline_2 = '2- Pothole locations (in mm) relative to the "map" coordinate frame:'
         headline_3 = '3- The map of the actual vs detected potholes (sky blue squares):'
         text = []
         pdf = canvas.Canvas(str(fileName))
-        pdf.setTitle(documentTitle)
+        pdf.setTitle(self.report_title)
         pdf.setFont('Helvetica', 20)
         pdf.drawCentredString(300, 800, title)
         pdf.setFont('Helvetica', 14)
         pdf.drawString(30, 760, headline_1)
         pdf.drawString(30, 730, headline_2)
         text = pdf.beginText(30, 700)
-        text.setFont('Helvetica', 10)
+        text.setFont('Helvetica', 12)
         for pothole in markers.markers:
             pothole_num = pothole.id + 1
             x = pothole.pose.position.x*100
-            y = pothole.pose.position.x*100
+            y = pothole.pose.position.y*100
             text_to_add = '- Location of pothole #' + str(pothole_num) + ' is approximately: x: ' + str(int(x)) + ', y: ' + str(int(y))
             text.textLines(str(text_to_add))
         pdf.drawText(text)
@@ -134,13 +146,14 @@ def generate_waypoints(current_pose):
     # These points were determined experimentally.
     points_to_cover = np.array([[1.15, 0.0],
               [1.15, -1.05],
-              [-0.35, -1.05],
+              [-0.25, -1.05],
               [-1.15, -1.05],
               [-1.15, 0.0],
-              [-0.35, 0.0]
+              [-0.25, 0.0]
               ])
     
-    start_point = find_closest_point_cw(current_pose, points_to_cover) # A function to find the closest point to the robot
+    start_point = find_closest_point_cw(current_pose, points_to_cover) # A function to find the closest point to the robot 
+    # cw = clockwise which is the direction of travel
 
     # Here the waypoints are determined based on the starting point such that the full map is covered
     if start_point < len(points_to_cover):
@@ -152,8 +165,8 @@ def generate_waypoints(current_pose):
 
     # These are the coordinates the robot has to follow to cover the inner road (the road in the middle)
     inner_loop = np.array([[1.15, -1.05],
-                  [-0.35, -1.05],
-                  [-0.35, 0.0],
+                  [-0.25, -1.05],
+                  [-0.25, 0.0],
                   [1.15, 0.0]
               ])
     
@@ -198,7 +211,7 @@ def find_closest_point_cw(current_pose, points_to_cover):
 # Clearly it depends on the accuracy of the initial location of the robot.
 # This code should only be run after the robot localizes its starting point.
 def main():
-
+    
     rclpy.init()
     tf_listener = TFListener()
 
@@ -212,20 +225,7 @@ def main():
             robot_y = transform.transform.translation.y
 
             points = generate_waypoints(np.array([robot_x, robot_y])) # Generate the major waypoints
-            count = 1
-            # Here add minor interpolated points.
-            # This was done at an earlier stage of the code and seems to be redundant. Kept here as commented in case it is needed again.
-            '''
-            for pt in initial_points:
-                if count == len(initial_points):
-                    break
-                elif count == 1:
-                    points = np.linspace(pt, initial_points[count], 4)
-                else:
-                    to_add = np.linspace(pt, initial_points[count], 4)
-                    points = np.append(points, to_add[1:], axis=0)
-                count+=1
-            '''
+
             # The following lines generate the way points with respect to the map coordinate frame
             all_waypoints = []
             single_waypoint = PoseStamped()
@@ -245,7 +245,7 @@ def main():
                     direction = np.pi/2
                 elif point[1] == -1.05:
                     direction = -np.pi
-                elif point[0] == -0.35 and point[1] != 0.0:
+                elif point[0] == -0.25 and point[1] != 0.0:
                     direction = np.pi/2
 
                 single_waypoint.pose = pose_from_xytheta(point[0], point[1], direction) # Get the pose of the waypoint
@@ -263,7 +263,6 @@ def main():
             print(robot_y)
             # Wait for navigation to fully activate, since autostarting nav2
             navigator.waitUntilNav2Active()
-
             navigator.followWaypoints(all_waypoints)
 
             i = 0
@@ -273,7 +272,6 @@ def main():
                 if feedback and i % 5 == 0:
                     print('Executing current waypoint: ' +
                     str(feedback.current_waypoint + 1) + '/' + str(len(all_waypoints)))
-                    print(points[feedback.current_waypoint])
 
             # Status of the goal point:
             result = navigator.getResult()
