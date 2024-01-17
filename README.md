@@ -13,7 +13,7 @@ This work presents a pothole detector for two simulated scenarios in Gazebo and 
 
 1- create a workspace (here ros2_ws is used as the folder name) and clone this repo:
 
-> mkdir ros2_ws && cd ros2_ws && mkdir src && cd src && git clone https://github.com/omaar97/limo_main_OmarF.git
+> mkdir ros2_ws && cd ros2_ws && mkdir src && cd src && git clone https://github.com/omaar97/limo_main.git
 
 2- Build the package and source the directory:
 
